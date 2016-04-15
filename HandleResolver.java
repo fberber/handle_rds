@@ -7,6 +7,12 @@
           http://hdl.handle.net/20.1000/103 or hdl:20.1000/103
 \**********************************************************************/
 
+  /*----------------------------------------------------------------------*/
+  /* Implemting the HS_RDS_URL into resolution process			          */
+  /* Author: Fatih Berber									              */
+  /* Email:  fatih.berber@gwdg.de							              */
+  /*----------------------------------------------------------------------*/
+
 package net.handle.hdllib;
 
 import java.net.*;
@@ -20,6 +26,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Pattern;
 import java.security.*;
 
 import javax.crypto.interfaces.DHPublicKey;
@@ -30,7 +37,10 @@ import javax.net.ssl.SSLSocket;
 import net.cnri.util.StringUtils;
 import net.handle.security.*;
 import net.handle.util.LRUCacheTable;
-
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 /** Responsible for locating and retrieving the value of handles using
  *  a caching server, or on the internet.
  */
@@ -710,8 +720,10 @@ public class HandleResolver implements RequestProcessor {
   {
     // need to send request here, based on current configuration
     switch(config.getResolutionMethod()) {
+   
       case Configuration.RM_WITH_CACHE:
         if(!req.isAdminRequest && !req.requiresConnection && req.ignoreRestrictedValues) {
+      
           // only request that will definitely not result in authentication
           // should go through local cache/resolver servers
           SiteInfo cacheSites[] = config.getCacheSites();
@@ -720,6 +732,7 @@ public class HandleResolver implements RequestProcessor {
                                         true, callback);
           }
         }
+ 
         return processRequestGlobally(req, callback);
       case Configuration.RM_GLOBAL:
       default:
@@ -754,12 +767,30 @@ public class HandleResolver implements RequestProcessor {
    * the use of a caching server.
    *
    **********************************************************************/
+  
+  /*----------------------------------------------------------------------*/
+  /* Check if there is HS_RDS_URL typed value in the prefix record        */
+  /* if so, apply the extension	                                          */
+  /* otherwise, do the usual resolution procedure						  */
+  /* Author: Fatih Berber									              */
+  /* Email:  fatih.berber@gwdg.de							              */
+  /*----------------------------------------------------------------------*/ 
+ 
   private AbstractResponse processRequestGlobally(AbstractRequest req,
-                                                  ResponseMessageCallback callback)
+          ResponseMessageCallback callback)
     throws HandleException
   {
-    return sendRequestToService(req, findLocalSites(req), true, callback);
+	 
+    ServiceInfo service = getServiceInfo(req,false);
+    if(find_RDS_URL(service)){  	
+    	return buildResponseForRDS_URL(req,service); 	
+    }
+    else{
+    	return sendRequestToService(req, getLocalSitesFromService(service), true, callback);
+    	
+    }
   }
+  
 
   /***********************************************************************
    * Shortcut to processRequestGlobally(req, null);
@@ -791,6 +822,7 @@ public class HandleResolver implements RequestProcessor {
    * @return the input ServiceInfo
    */
   private ServiceInfo globalServiceInfo(byte[] handle) {
+	
       ServiceInfo res = new ServiceInfo();
       res.response = null;
       res.sites = config.getLocalSites(handle);
@@ -809,7 +841,9 @@ public class HandleResolver implements RequestProcessor {
    * @throws HandleException
    */
   private void getServiceInfoForNA(ResolutionRequest resReq, SiteInfo[] sites, ServiceInfo service, boolean forceResolution, boolean findPrefixReferralSites) throws HandleException {
-      resReq.clearBuffers();
+      
+
+	  resReq.clearBuffers();
       service.response = null;
       service.sites = null;
       service.ns = null;
@@ -820,10 +854,12 @@ public class HandleResolver implements RequestProcessor {
       SiteInfo[] localSites = config.getLocalSites(resReq.handle);
       if (localSites !=null) {
         service.sites = localSites;
+
         if(!forceResolution) return;
       }
 
       if (resReq.recursionCount >= recursionCountLimit) {
+
           throw new HandleException(HandleException.SERVICE_NOT_FOUND,
                   "Encountered recursion limit looking for service for handle "+
                           Util.decodeString(resReq.handle));
@@ -832,15 +868,14 @@ public class HandleResolver implements RequestProcessor {
       // the 'true' indicates to cache the result
       if (sites==null) sites = config.getGlobalSites();
       service.response = sendRequestToService(resReq, sites, true, null);
-
+ 
       if(service.response.responseCode==AbstractResponse.RC_SUCCESS) {
           HandleValue[] values = ((ResolutionResponse)service.response).getHandleValues();
           service.values = values;
 
           // extract any namespace information.
           service.ns = Util.getNamespaceFromValues(values);
-          if (service.sites == null) {
-              // skip getting sites if already have local sites
+          if (service.sites == null) {     
               populateServiceInfoSites(resReq, service, values, findPrefixReferralSites);
           }
       }
@@ -997,6 +1032,7 @@ public class HandleResolver implements RequestProcessor {
    * @throws HandleException
    */
   private ServiceInfo getServiceInfo(AbstractRequest req, boolean forceResolution) throws HandleException {
+	  
       // if the handle is under the global prefix (0) then it gets resolved by the global service
       if(Util.startsWithCI(req.handle, Common.GLOBAL_NA_PREFIX) || Util.startsWithCI(req.handle, Common.GLOBAL_NA)) {
           req.setNamespace(config.getGlobalNamespace());
@@ -1017,7 +1053,14 @@ public class HandleResolver implements RequestProcessor {
       return service;
   }
   
+  /*-----------------------------------------------------------*/
+  /* ENABLED THE HS_RDS_URL retrieval from the prefix record --*/
+  /* Author: Fatih Berber									   */
+  /* Email:  fatih.berber@gwdg.de							   */
+  /*-----------------------------------------------------------*/ 
+  
   private ResolutionRequest buildPrefixResolutionRequest(AbstractRequest req) throws HandleException {
+	  
       // We look for admin types to facilitate servers wanting to find the right admin for a create handle
       ResolutionRequest resReq = new ResolutionRequest(Util.getZeroNAHandle(req.handle), Common.SITE_INFO_AND_SERVICE_HANDLE_AND_NAMESPACE_TYPES, null, null);
       resReq.takeValuesFrom(req);
@@ -1027,7 +1070,8 @@ public class HandleResolver implements RequestProcessor {
       resReq.sessionTracker = null;  // don't use session for NA resolution
       resReq.encrypt = false; // don't use session for NA resolution
       resReq.recursionCount = (short)(req.recursionCount+1);
-      resReq.requestedTypes = Common.SITE_INFO_AND_SERVICE_HANDLE_AND_NAMESPACE_TYPES;
+      /* Added the HS_RDS_URL type for requesting from prefix record */
+      resReq.requestedTypes = Common.SITE_INFO_AND_SERVICE_HANDLE_AND_NAMESPACE_AND_RDS_URL_TYPES;
       return resReq;
   }
   
@@ -1051,7 +1095,37 @@ public class HandleResolver implements RequestProcessor {
    * Get the site information for the service that is responsible for
    * this handle while at the same time populating the namespace
    **********************************************************************/
+ 
+  /*------------------------------------------------------------*/
+  /* Check if prefix record contains a HS_RDS_URL typed value --*/
+  /* Author: Fatih Berber									    */
+  /* Email:  fatih.berber@gwdg.de							    */
+  /*------------------------------------------------------------ */ 
+  
+  public boolean find_RDS_URL(ServiceInfo service) {
+	 
+	  HandleValue [] values =  service.values;
+	  for (int i=0;i < values.length;i++){
+		  if (values[i].hasType(Common.RDS_URL_TYPE))
+				  return true;
+	  }
+	  
+	return false;
+  }
+  
+  /*-----------------------------------------------------------*/
+  /* ENABLED get the service info from ServiceInfo           --*/
+  /* Author: Fatih Berber									   */
+  /* Email:  fatih.berber@gwdg.de							   */
+  /*-----------------------------------------------------------*/ 
+  
+  public SiteInfo[] getLocalSitesFromService(ServiceInfo serviceInfo) { 
+	  return serviceInfo.sites;
+  }
+ 
+  
   public SiteInfo[] findLocalSites(AbstractRequest req) throws HandleException {
+
       return getServiceInfo(req,false).sites;
   }
 
@@ -3158,4 +3232,91 @@ public class HandleResolver implements RequestProcessor {
       byte keyType[] = Encoder.readByteArray(pubKeyBytes, 0);
       return Util.equals(keyType, Common.KEY_ENCODING_DSA_PUBLIC);
   }
+  
+
+  /*-----------------------------------------------------------------------*/
+  /* Build Response without delegation to any local handle service         */
+  /* Author: Fatih Berber									               */
+  /* Email:  fatih.berber@gwdg.de							               */
+  /*-----------------------------------------------------------------------*/ 
+	
+   private AbstractResponse buildResponseForRDS_URL(AbstractRequest req, ServiceInfo service) throws HandleException{
+			
+	        int now = (int)(System.currentTimeMillis()/1000);
+			 List<HandleValue> values = new ArrayList<HandleValue>();
+			 HandleValue value = new HandleValue();
+			 value.setIndex(1);
+			 value.setType(Util.encodeString("URL"));
+			 value.setData(extend_RDS_URL(req.handle,service));
+			 value.setTTLType(HandleValue.TTL_TYPE_RELATIVE);
+			 value.setTTL(HandleValue.MAX_RECOGNIZED_TTL);     
+			 value.setTimestamp(now);
+			 value.setReferences(null);
+			 value.setAdminCanRead(true);
+			 value.setAdminCanWrite(true);
+			 value.setAnyoneCanRead(true);
+			 value.setAnyoneCanWrite(false);
+			 values.add(value);
+			
+			  byte rawValues[][] = new byte[values.size()][];
+	            for (int i = 0; i < rawValues.length; i++) {
+	                HandleValue value_ = (HandleValue) values.get(i);
+	                rawValues[i] = new byte[Encoder.calcStorageSize(value_)];
+	                Encoder.encodeHandleValue(rawValues[i], 0, value_);
+	            }
+			
+			return new ResolutionResponse(req, req.handle,rawValues);
+		}
+   
+   /*----------------------------------------------------------------------------*/
+   /* Apply extension of current offered request syntax	with incoming handle     */
+   /* Author: Fatih Berber									                     */
+   /* Email:  fatih.berber@gwdg.de							                     */
+   /*----------------------------------------------------------------------------*/ 
+		
+    private byte [] extend_RDS_URL(byte [] handle, ServiceInfo service){
+    	
+    	    HandleValue [] values = service.values;
+    	    int index_of_rds_url = 0;
+    	    		
+    	    for (int i=0;i < values.length;i++){
+    	    	  if (values[i].hasType(Common.RDS_URL_TYPE)){
+    	    		  index_of_rds_url = i;
+    			  }
+    		 }
+			 		
+			String theResultingUrl = Util.decodeString(values[index_of_rds_url].getData());
+			String handleStr = Util.decodeString(handle);
+			
+			String [] prefix_suffix = handleStr.split("/");
+			
+			if (prefix_suffix.length > 1){
+			
+				String incomingPrefix = prefix_suffix[0];
+				String incomingSuffix = prefix_suffix[1];
+				
+			
+				Pattern p_prefix = Pattern.compile("\\#\\{prefix\\}", Pattern.CASE_INSENSITIVE);
+				Pattern p_suffix = Pattern.compile("\\#\\{suffix\\}", Pattern.CASE_INSENSITIVE);
+		    
+				Matcher m_prefix = p_prefix.matcher(theResultingUrl);
+				Matcher m_suffix = p_suffix.matcher(theResultingUrl);
+		    
+				if (m_prefix.find())
+					theResultingUrl = m_prefix.replaceAll(incomingPrefix);
+		    
+				if (m_suffix.find())
+					theResultingUrl = m_suffix.replaceAll(incomingSuffix);
+				
+				return Util.encodeString(theResultingUrl);
+			
+			}
+			else
+				return null;
+
+		}
+
+
+    
+  
 }

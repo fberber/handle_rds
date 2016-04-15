@@ -7,6 +7,12 @@
           http://hdl.handle.net/20.1000/103 or hdl:20.1000/103
 \**********************************************************************/
 
+  /*----------------------------------------------------------------------*/
+  /* Added the HS_RDS_URL type	                 				          */
+  /* Author: Fatih Berber									              */
+  /* Email:  fatih.berber@gwdg.de							              */
+  /*----------------------------------------------------------------------*/
+
 package net.handle.hdllib;
 
 /***********************************************************************
@@ -46,6 +52,9 @@ public abstract class Common {
   public static final byte SERVICE_HANDLE_TYPE[] = Util.encodeString("HS_SERV");
   public static final byte DERIVED_PREFIX_SERVICE_HANDLE_TYPE[] = Util.encodeString("HS_SERV.PREFIX");
   public static final byte NAMESPACE_INFO_TYPE[] = Util.encodeString("HS_NAMESPACE");
+ 
+  public static final byte RDS_URL_TYPE[] = Util.encodeString("HS_RDS_URL");
+  
   @Deprecated public static final byte MD5_SECRET_KEY_TYPE[] = Util.encodeString("HS_SECKEY");
   public static final byte SECRET_KEY_TYPE[] = Util.encodeString("HS_SECKEY");
   public static final byte PUBLIC_KEY_TYPE[] = Util.encodeString("HS_PUBKEY");
@@ -85,6 +94,13 @@ public abstract class Common {
       SITE_INFO_6_TYPE,
       SERVICE_HANDLE_TYPE,
       NAMESPACE_INFO_TYPE };
+  
+  public static final byte SITE_INFO_AND_SERVICE_HANDLE_AND_NAMESPACE_AND_RDS_URL_TYPES[][] = { SITE_INFO_TYPE,
+      SITE_INFO_6_TYPE,
+      SERVICE_HANDLE_TYPE,
+      NAMESPACE_INFO_TYPE ,
+      RDS_URL_TYPE};
+  
   public static final byte DERIVED_PREFIX_SITE_AND_SERVICE_HANDLE_TYPES[][] = { 
       DERIVED_PREFIX_SITE_TYPE,
       LEGACY_DERIVED_PREFIX_SITE_TYPE,
